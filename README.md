@@ -9,7 +9,7 @@
 
 **Server Authoritive Vehicle** is a barebones, scalable and secure vehicle system for Roblox.
 
-Every vehicle physics is simulated by the server rather than the clients, each clients job is to send their inputs to the server and predict every cars future position to make up for the network delay. This vehicle system focuses on having minimal data to replicate, making it ideal for games needing a light-weight chassis with the security and competitive benefits the server aUthority archetecture and its built-in prediction provide.
+Every vehicle's physics is simulated by the server rather than the clients, each clients job is to send their inputs to the server and predict every cars future position to make up for the added network delay. This vehicle system focuses on having minimal data to replicate, making it ideal for games needing a light-weight chassis with the security and competitive benefits the server authority archetecture and its built-in prediction provide.
 
 
 
@@ -50,9 +50,12 @@ This is recommended because although the system uses VectorForces to simulate th
 
 ## Known Bugs
 
-* The gravity compensation logic leads to the car being flip prone (?)
+* The gravity compensation logic leads to the car being flip prone (?).
 * The cars sometimes (?) levitate into the air in public servers.
 * The steering causes visible mispredictions.
+* Cars pre-spawned in workspace simetimes (?) appear in different locations when you start a new server.
+* Getting out of a car sometimes lets you see the void for a split second (?).
+
 
 All of these issues are caused by Roblox's current Server Authority implementation.
 
