@@ -156,10 +156,10 @@ local function initialiseAssemblies(vehicle: Model, seat: Seat, tune: { [string]
 		if not descendant.Massless then
 			local attachment = Instance.new("Attachment")
 			attachment.Name = "GravityAttachment"
-			attachment.Parent = part
+			attachment.Parent = descendant
 
 			local vectorForce = Instance.new("VectorForce")
-			vectorForce.Name = "GravityAttachment"
+			vectorForce.Name = "GravityForce"
 			vectorForce.RelativeTo = Enum.ActuatorRelativeTo.World
 			vectorForce.ApplyAtCenterOfMass  = true
 			vectorForce.Attachment0 = attachment
