@@ -69,43 +69,57 @@ Simulation.Start = function(vehicle: Model, seat: Seat, tune: { [string]: any })
 		return
 	end
 
+	local rollbackWhitelist = { -- Values that need to support rollback ONLY
+		SteerAmount = 0,
+
+		GearboxCurrentGearIndex = ((table.find(tune.GearRatios, 0) or 0) + 1),
+		GearboxShiftState = 0,
+		GearboxTimer = 0,
+
+		ClutchTorque = 0,
+
+		EngineThrottleOverrideEnabled = false,
+		EngineThrottleOverride = 0,
+
+		EngineThrottleCutTimer = 0,
+		EngineTimer = 0,
+		EngineInstability = 1,
+		EngineThrottle = tune.IdleThrottle * 0.5,
+		EngineVelocity = tune.IdleRPM * (Units.Tau / 60), -- angular
+
+		FlipActive = false,
+		FlipTimer = 0,
+	}
+
+	for name, value in rollbackWhitelist :: { [string]: any } do
+		if chassis:GetAttribute(name) == nil then
+			chassis:SetAttribute(name, value) -- set default
+		end
+	end
+
 	local connections = {}
 
 	table.insert(connections, RunService:BindToSimulation(function(deltaTime: number)
+		local cache = Simulation.Cache[vehicle].States
+
 		const driver = seat.Occupant and Players:GetPlayerFromCharacter(seat.Occupant.Parent :: Model)
 		if driver and (localPlayer == driver or isServer) then
-			Simulation.StorePlayerInputs(driver, seat)
+			Simulation.StorePlayerInputs(driver, chassis)
 		end
 
-		local cache = Simulation.Cache[vehicle].States
-		cache.InputThrottle = seat:GetAttribute("Throttle") or 0
-		cache.InputBrake = seat:GetAttribute("Brake") or 0
-		cache.InputSteer = seat:GetAttribute("Steer") or 0
-
-		cache.Velocity = seat.AssemblyLinearVelocity
-		cache.SteerAmount = cache.SteerAmount or 0
-
-		cache.EngineThrottleOverride = cache.EngineThrottleOverride or false
-		cache.GearboxCurrentGearIndex = cache.GearboxCurrentGearIndex or ((table.find(tune.GearRatios, 0) or 0) + 1)
-		cache.GearboxCurrentGearRatio = cache.GearboxCurrentGearRatio or tune.GearRatios[cache.GearboxCurrentGearIndex]
-		cache.GearboxShifting = cache.GearboxShifting or false
-		cache.DirectionShiftTimer = cache.DirectionShiftTimer or 0
-
-		if cache.GearboxInGear == nil then
-			cache.GearboxInGear = true
+		local copy = {}
+		for name in rollbackWhitelist :: { [string]: any } do
+			local value = chassis:GetAttribute(name)
+			cache[name] = value
+			copy[name] = value
 		end
 
-		cache.ClutchTorque = cache.ClutchTorque or 0
+		cache.InputThrottle = chassis:GetAttribute("Throttle") or 0
+		cache.InputBrake = chassis:GetAttribute("Brake") or 0
+		cache.InputSteer = chassis:GetAttribute("Steer") or 0
 
-		cache.EngineThrottleCut = cache.EngineThrottleCut or false
-		cache.EngineTimer = cache.EngineTimer or 0
-		cache.EngineInstability = cache.EngineInstability or 1
-		cache.EngineThrottle = cache.EngineThrottle or (tune.IdleThrottle * 0.5)
-		cache.EngineVelocity = cache.EngineVelocity or (tune.IdleRPM * (Units.Tau / 60)) -- angular
-		cache.EngineRPM = cache.EngineRPM or tune.IdleRPM
-
-		cache.FlipActive = cache.FlipActive or false
-		cache.FlipTimer = cache.FlipTimer or 0
+		cache.Velocity = chassis.AssemblyLinearVelocity
+		cache.EngineRPM = cache.EngineVelocity * (60 / Units.Tau)
 
 		Steering.FixedUpdate(cache, tune, deltaTime)
 
@@ -117,8 +131,21 @@ Simulation.Start = function(vehicle: Model, seat: Seat, tune: { [string]: any })
 
 		Wheels.FixedUpdate(cache, tune, deltaTime, Differential.GetDownstreamTorque(cache, tune, Gearbox.GetDownstreamTorque(cache)))
 
-		if isServer then
-			Flip.FixedUpdate(cache, tune, deltaTime)
+		Flip.FixedUpdate(cache, tune, deltaTime)
+
+		-- Tie in any of your own code here which DOES affects physics
+		-- Lots of properties cannot be edited inside a BindToSimulation loop
+
+		for name in rollbackWhitelist :: { [string]: any } do
+			if copy[name] == cache[name] then
+				continue
+			end
+
+			chassis:SetAttribute(name, cache[name])
+		end
+
+		if not isServer then
+			chassis:SetAttribute("EngineRPM", cache.EngineRPM) -- dbeug
 		end
 
 	end, Enum.StepFrequency.Hz60))
@@ -149,7 +176,7 @@ Simulation.Start = function(vehicle: Model, seat: Seat, tune: { [string]: any })
 		entry.Mount = wheelModel:WaitForChild("Mount", 5) :: Part ?
 
 		if entry.Wheel then
-			const localPosition = seat.CFrame:ToObjectSpace(entry.Wheel.CFrame).Position
+			const localPosition = chassis.CFrame:ToObjectSpace(entry.Wheel.CFrame).Position
 			entry.IsFrontWheel = localPosition.Z < 0
 			entry.IsLeftWheel = localPosition.X < 0
 		end
@@ -173,6 +200,14 @@ Simulation.Start = function(vehicle: Model, seat: Seat, tune: { [string]: any })
 			Wheels = wheels
 		}
 	}
+
+	-- Tie in any of your own code here which DOESN'T affects physics
+	-- E.g. one time code or prerender loops, ensure you clean up with the Stop function
+
+	if not isServer then
+
+	end
+
 end
 
 Simulation.Stop = function(vehicle: Model)
