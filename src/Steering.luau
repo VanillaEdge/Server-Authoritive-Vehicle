@@ -65,8 +65,6 @@ Steering.FixedUpdate = function(cache: { [string]: any }, tune: { [string]: any 
 			const maxAngle = data.IsFrontWheel and tune.MaxSteerAngle or tune.RMaxSteerAngle
 			const direction = data.IsFrontWheel and 1 or -1
 			const steerAngle = cache.SteerAmount * maxAngle * angleScale * direction
-
-			-- server authority does not like this, not much I can do about it
 			data.SteeringAttachment.Orientation = forwardOrientation + Vector3.new(0, -steerAngle, 0)
 		else
 			data.SteeringAttachment.Orientation = forwardOrientation
