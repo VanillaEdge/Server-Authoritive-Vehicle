@@ -2,7 +2,7 @@
 
 local Tune = {}
 
--- Weight (you may want to set workspace.Gravity to 35 if you experience flipping, otherwise change Units)
+-- Weight (under real world gravity)
 Tune.TotalWeight = 1100
 Tune.WheelWeight = 25
 
