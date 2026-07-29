@@ -4,6 +4,10 @@ local Units = require(script.Parent.Parent.Units)
 
 local Gearbox = {}
 
+const engaged = 0
+const shifting = 1
+const revMatching = 2
+
 Gearbox.GetDownstreamTorque = function(cache: { [string]: any }): number
 	return cache.ClutchTorque * cache.GearboxCurrentGearRatio
 end
@@ -12,23 +16,31 @@ Gearbox.GetUpstreamAngularVelocity = function(cache: { [string]: any }, angularV
 	return angularVelocity * cache.GearboxCurrentGearRatio
 end
 
-Gearbox.ShiftToGear = function(cache: { [string]: any }, tune: { [string]: any }, targetGear: number)
-	if cache.GearboxShifting then
+Gearbox.UpdateDerivedState = function(cache: { [string]: any }, tune: { [string]: any })
+	const gearRatio = tune.GearRatios[cache.GearboxCurrentGearIndex]
+	const isEngaged = cache.GearboxShiftState == engaged
+
+	cache.GearboxShifting = cache.GearboxShiftState ~= engaged
+	cache.GearboxRevMatching = cache.GearboxShiftState == revMatching
+	cache.GearboxInGear = isEngaged and gearRatio ~= 0
+	cache.GearboxCurrentGearRatio = cache.GearboxInGear and gearRatio or 0
+end
+
+Gearbox.ShiftToGear = function(cache: { [string]: any }, targetGear: number)
+	if cache.GearboxShiftState ~= engaged then
 		return
 	end
 
-	cache.GearboxShifting = true
-	cache.GearboxInGear = false
-	cache.GearboxRevMatching = false
-
-	task.delay(tune.ShiftDuration, function()
-		cache.GearboxCurrentGearIndex = targetGear
-		cache.GearboxRevMatching = true
-	end)
+	cache.GearboxCurrentGearIndex = targetGear
+	cache.GearboxShiftState = shifting
+	cache.GearboxTimer = 0
 end
 
 Gearbox.FixedUpdate = function(cache: { [string]: any }, tune: { [string]: any }, deltaTime: number, gearboxOutputVelocity: number)
-	const inReverse = tune.GearRatios[cache.GearboxCurrentGearIndex] < 0
+	Gearbox.UpdateDerivedState(cache, tune)
+
+	const currentGearRatio = tune.GearRatios[cache.GearboxCurrentGearIndex]
+	const inReverse = currentGearRatio < 0
 	const firstDrive = (table.find(tune.GearRatios, 0) or 0) + 1
 	const reverseGear = firstDrive - 2
 
@@ -37,63 +49,72 @@ Gearbox.FixedUpdate = function(cache: { [string]: any }, tune: { [string]: any }
 		cache.InputThrottle, cache.InputBrake = cache.InputBrake, cache.InputThrottle
 	end
 
-	if cache.GearboxInGear and not cache.GearboxShifting and cache.Velocity.Magnitude <= 1 and (cache.GearboxCurrentGearIndex == firstDrive or inReverse) and cache.InputBrake > 0.5 then
-		cache.DirectionShiftTimer += deltaTime
-		if cache.DirectionShiftTimer >= (tune.ShiftDuration * 1.5) then
-			cache.DirectionShiftTimer = 0
-			Gearbox.ShiftToGear(cache, tune, inReverse and firstDrive or reverseGear)
-		end
-	else
-		cache.DirectionShiftTimer = 0
-	end
-
-	-- Shifting
-	if cache.GearboxInGear and not cache.GearboxShifting then
-		if cache.GearboxCurrentGearIndex > firstDrive and cache.EngineRPM < tune.AutoShiftDownRPM then
-			const nextGearRatio = tune.GearRatios[cache.GearboxCurrentGearIndex - 1]
-			const nextGearRPM = math.abs(gearboxOutputVelocity * nextGearRatio) * (60 / Units.Tau)
-
-			if nextGearRPM <= tune.AutoShiftUpRPM then
-				Gearbox.ShiftToGear(cache, tune, cache.GearboxCurrentGearIndex - 1)
-			end
-
-		elseif cache.GearboxCurrentGearIndex >= firstDrive and cache.GearboxCurrentGearIndex < #tune.GearRatios and cache.EngineRPM > tune.AutoShiftUpRPM then
-			Gearbox.ShiftToGear(cache, tune, cache.GearboxCurrentGearIndex + 1)
-		end
-	end
-
-	-- Revmatching
-	if cache.GearboxShifting then
+	-- Engaged
+	if cache.GearboxShiftState == engaged then
+		cache.EngineThrottleOverrideEnabled = false
 		cache.EngineThrottleOverride = 0
 
-		if cache.GearboxRevMatching then
-			const targetGearRatio = tune.GearRatios[cache.GearboxCurrentGearIndex]
-			const targetEngineVelocity = math.abs(gearboxOutputVelocity * targetGearRatio)
-			const targetEngineRPM = math.max(targetEngineVelocity * (60 / Units.Tau), tune.IdleRPM)
-
-			if cache.EngineRPM < targetEngineRPM - tune.RevMatchToleranceRPM then
-				cache.EngineThrottleOverride = tune.RevMatchThrottle
-			elseif cache.EngineRPM <= targetEngineRPM + tune.RevMatchToleranceRPM then
-				cache.GearboxRevMatching = false
-				cache.GearboxInGear = true
-				cache.GearboxShifting = false
-				cache.EngineThrottleOverride = 0
+		-- Reverse / forward
+		if cache.Velocity.Magnitude <= 1 and (cache.GearboxCurrentGearIndex == firstDrive or inReverse) and cache.InputBrake > 0.5 then
+			cache.GearboxTimer += deltaTime
+			if cache.GearboxTimer >= (tune.ShiftDuration * 1.5) then
+				Gearbox.ShiftToGear(cache, inReverse and firstDrive or reverseGear)
+				Gearbox.UpdateDerivedState(cache, tune)
+				return
 			end
+		else
+			cache.GearboxTimer = 0
 		end
-	else
-		cache.EngineThrottleOverride = false
+
+		-- Shift up / down
+		const currentGearRPM = math.abs(gearboxOutputVelocity * currentGearRatio) * (60 / Units.Tau)
+		if cache.GearboxCurrentGearIndex > firstDrive and currentGearRPM < tune.AutoShiftDownRPM then
+			local targetGear = cache.GearboxCurrentGearIndex
+			for gear = targetGear - 1, firstDrive, -1 do
+				const gearRPM = math.abs(gearboxOutputVelocity * tune.GearRatios[gear]) * (60 / Units.Tau)
+				if gearRPM > tune.AutoShiftUpRPM then
+					break
+				end
+				targetGear = gear
+			end
+
+			if targetGear ~= cache.GearboxCurrentGearIndex then
+				Gearbox.ShiftToGear(cache, targetGear)
+			end
+
+		elseif cache.GearboxCurrentGearIndex >= firstDrive and cache.GearboxCurrentGearIndex < #tune.GearRatios and currentGearRPM > tune.AutoShiftUpRPM then
+			Gearbox.ShiftToGear(cache, cache.GearboxCurrentGearIndex + 1)
+		end
+
+		-- Shift delay
+	elseif cache.GearboxShiftState == shifting then
+		cache.EngineThrottleOverrideEnabled = true
+		cache.EngineThrottleOverride = 0
+		cache.GearboxTimer += deltaTime
+
+		if cache.GearboxTimer >= tune.ShiftDuration then
+			cache.GearboxTimer = 0
+			cache.GearboxShiftState = revMatching
+		end
+
+		-- Revmatching
+	elseif cache.GearboxShiftState == revMatching then
+		cache.EngineThrottleOverrideEnabled = true
+		cache.EngineThrottleOverride = 0
+
+		const targetEngineRPM = math.max(math.abs(gearboxOutputVelocity * currentGearRatio) * (60 / Units.Tau), tune.IdleRPM)
+
+		if cache.EngineRPM < targetEngineRPM - tune.RevMatchToleranceRPM then
+			cache.EngineThrottleOverride = tune.RevMatchThrottle
+		elseif cache.EngineRPM <= targetEngineRPM + tune.RevMatchToleranceRPM then
+			cache.GearboxShiftState = engaged
+			cache.GearboxTimer = 0
+			cache.EngineThrottleOverrideEnabled = false
+			cache.EngineThrottleOverride = 0
+		end
 	end
 
-	-- Neutral
-	if cache.GearboxInGear then
-		cache.GearboxCurrentGearRatio = tune.GearRatios[cache.GearboxCurrentGearIndex]
-	else
-		cache.GearboxCurrentGearRatio = 0
-	end
-
-	if cache.GearboxCurrentGearRatio == 0 then
-		cache.GearboxInGear = false
-	end
+	Gearbox.UpdateDerivedState(cache, tune)
 end
 
 return Gearbox
