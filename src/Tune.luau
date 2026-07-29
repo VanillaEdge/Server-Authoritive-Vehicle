@@ -2,7 +2,7 @@
 
 local Tune = {}
 
--- Weight (under real world gravity)
+-- Weight (under real world gravity in kg)
 Tune.TotalWeight = 1100
 Tune.WheelWeight = 25
 
