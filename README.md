@@ -38,11 +38,10 @@ ReplicatedStorage
 
 ## Known Bugs
 
-* The gravity compensation logic causes the cars to sometimes (?) levitate into the air in public servers.
-* The steering causes visible mispredictions.
+* Getting into a car in a new server can sometimes (?) de-sync the car and character positions.
 * Cars pre-spawned in workspace sometimes (?) appear in different locations when you start a new server.
 * Getting out of a car sometimes lets you see the void for a split second (?).
-
+* Getting out of a car makes your characters movement glitchy... (?).
 
 All of these issues are caused by Roblox's current Server Authority implementation.
 
