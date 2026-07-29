@@ -4,11 +4,6 @@ local Units = require(script.Parent.Parent.Units)
 
 local Engine = {}
 
-local function mapRangeClamped(value: number, inA: number, inB: number, outA: number, outB: number): number
-	const t = math.clamp((value - inA) / (inB - inA), 0, 1)
-	return outA + (outB - outA) * t
-end
-
 local function evaluateCurve(rpm: number, curve): number
 	if rpm <= curve[1][1] then
 		return curve[1][2]
@@ -28,7 +23,7 @@ end
 
 Engine.FixedUpdate = function(cache: { [string]: any }, tune: { [string]: any }, deltaTime: number)
 	-- Idler circuit
-	local engineIdler = mapRangeClamped(cache.EngineRPM, tune.IdleRPM - 200, tune.IdleRPM + 200, tune.IdleThrottle, 0)
+	local engineIdler = math.map(math.clamp(cache.EngineRPM, tune.IdleRPM - 200, tune.IdleRPM + 200), tune.IdleRPM - 200, tune.IdleRPM + 200, tune.IdleThrottle, 0)
 	cache.EngineTimer += deltaTime
 
 	if cache.EngineTimer >= 0.1 then
@@ -39,16 +34,14 @@ Engine.FixedUpdate = function(cache: { [string]: any }, tune: { [string]: any },
 	engineIdler *= cache.EngineInstability
 
 	-- Rev limiter
-	if cache.EngineRPM >= tune.RedlineRPM and not cache.EngineThrottleCut then
-		cache.EngineThrottleCut = true
-		task.delay(tune.ThrottleCutOffDuration, function()
-			cache.EngineThrottleCut = false
-		end)
+	cache.EngineThrottleCutTimer = math.max(cache.EngineThrottleCutTimer - deltaTime, 0)
+	if cache.EngineThrottleCutTimer <= 0 and cache.EngineRPM >= tune.RedlineRPM then
+		cache.EngineThrottleCutTimer = tune.ThrottleCutOffDuration
 	end
 
 	-- Throttle
-	const throttleInput = cache.EngineThrottleOverride or cache.InputThrottle
-	if not cache.EngineThrottleCut then
+	const throttleInput = cache.EngineThrottleOverrideEnabled and cache.EngineThrottleOverride or cache.InputThrottle
+	if cache.EngineThrottleCutTimer <= 0 then
 		cache.EngineThrottle = math.clamp(cache.EngineThrottle + (math.max(throttleInput, engineIdler) - cache.EngineThrottle) * deltaTime * 10, 0, 1)
 	else
 		cache.EngineThrottle = math.clamp(cache.EngineThrottle - deltaTime * 10, 0, 1)
