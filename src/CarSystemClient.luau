@@ -70,7 +70,7 @@ CollectionService:GetInstanceRemovedSignal(tagName):Connect(onVehicleRemoved)
 
 for i, v in CollectionService:GetTagged(tagName) do
 	if not v:IsDescendantOf(workspace) then
-		return
+		continue
 	end
 
 	onVehicleAdded(v)
